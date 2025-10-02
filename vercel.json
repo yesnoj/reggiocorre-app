@@ -1,0 +1,12 @@
+{
+  "functions": {
+    "api/scraper.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  },
+  "crons": [{
+    "path": "/api/scraper",
+    "schedule": "0 6 * * *"
+  }]
+}
