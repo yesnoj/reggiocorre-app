@@ -267,7 +267,7 @@ function parseReggioCorre(html) {
       };
     }
   }
-  
+     
   // Aggiungi l'ultima gara
   if (currentRace && currentRace.title && currentRace.distances.length > 0) {
     races.push(currentRace);
