@@ -124,13 +124,14 @@ function parseReggioCorre(html) {
         // Se troviamo una nuova data, fermiamoci
         if (/^\d{1,2}\/\d{1,2}$/.test(l)) break;
         
-        // Cerca distanze (pattern: numeri con trattini o virgole, spazi)
+        // Cerca distanze (pattern: numeri con trattini)
         // Es: "68 - 43 - 28" o "1,5-7,2-11" o "2,5- 6,5-12- 21"
+        // Il separatore principale è il TRATTINO, la virgola è per i decimali
         if (/^[\d\s,\-\.]+$/.test(l) && l.length < 30) {
           const dists = l
-            .replace(/\s+/g, '') // rimuovi spazi
-            .split(/[-,]/) // split su - o ,
-            .map(d => parseFloat(d.trim()))
+            .replace(/\s+/g, '') // rimuovi tutti gli spazi
+            .split('-') // split SOLO sui trattini
+            .map(d => parseFloat(d.replace(',', '.'))) // converti virgole decimali in punti
             .filter(d => !isNaN(d) && d > 0 && d < 200);
           
           if (dists.length > 0 && !foundDistances) {
