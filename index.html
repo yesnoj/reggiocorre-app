@@ -601,24 +601,24 @@ END:VCALENDAR`;
                                         race.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                         race.description.toLowerCase().includes(searchTerm.toLowerCase());
                     
-                    const matchesLocation = !selectedLocation || race.location === selectedLocation;
+                    const matchesLocation = !selectedProvince || race.location === selectedProvince;
                     const matchesType = !selectedType || race.type === selectedType;
                     const matchesDistance = !selectedDistance || race.distances.includes(parseFloat(selectedDistance));
                     const matchesDate = !selectedDate || race.date === selectedDate;
 
                     return matchesSearch && matchesLocation && matchesType && matchesDistance && matchesDate;
                 });
-            }, [races, searchTerm, selectedLocation, selectedType, selectedDistance, selectedDate]);
+            }, [races, searchTerm, selectedProvince, selectedType, selectedDistance, selectedDate]);
 
             const clearFilters = () => {
                 setSearchTerm('');
-                setSelectedLocation('');
+                setselectedProvince('');
                 setSelectedType('');
                 setSelectedDistance('');
                 setSelectedDate('');
             };
 
-            const activeFiltersCount = [selectedLocation, selectedType, selectedDistance, selectedDate].filter(Boolean).length;
+            const activeFiltersCount = [selectedProvince, selectedType, selectedDistance, selectedDate].filter(Boolean).length;
 
             const formatDate = (dateStr) => {
                 const date = new Date(dateStr);
@@ -976,3 +976,4 @@ END:VCALENDAR`;
     </script>
 </body>
 </html>
+
