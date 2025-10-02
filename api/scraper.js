@@ -96,10 +96,16 @@ function parseReggioCorre(html) {
       // ...   -> distanze (numero con trattini)
       
       const dayOfWeek = lines[i + 1] || '';
-      const province = lines[i + 2] || '';
+      const province = lines[i + 2] || 'XY'; // MO, RE, BO, o XY (fuori provincia)
       const time = lines[i + 3] || '09:00';
       const title = lines[i + 4] || '';
       const venue = lines[i + 5] || '';
+      
+      // Converti codice provincia in nome completo
+      let provinceName = 'Fuori Provincia';
+      if (province === 'MO') provinceName = 'Modena';
+      else if (province === 'RE') provinceName = 'Reggio Emilia';
+      else if (province === 'BO') provinceName = 'Bologna';
       
       // Estrai località dal venue (prendi l'ultima parte dopo la virgola)
       let location = venue;
