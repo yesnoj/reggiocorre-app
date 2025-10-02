@@ -1,3 +1,77 @@
+// api/scraper.js - Vercel Serverless Function
+import fetch from 'node-fetch';
+import { JSDOM } from 'jsdom';
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
+
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  try {
+    console.log('Fetching data from ReggioCorre...');
+    
+    const response = await fetch('https://www.reggiocorre.it/calendario.aspx');
+    const html = await response.text();
+    
+    console.log('HTML length:', html.length);
+    
+    // DEBUG MODE: Se c'è il parametro ?debug=true mostra l'HTML grezzo
+    if (req.query.debug === 'true') {
+      const dom = new JSDOM(html);
+      const document = dom.window.document;
+      
+      // Cerca il contenuto principale
+      const bodyText = document.body.textContent.substring(0, 5000);
+      
+      return res.status(200).json({
+        debug: true,
+        htmlLength: html.length,
+        bodyPreview: bodyText,
+        tableCount: document.querySelectorAll('table').length,
+        rowCount: document.querySelectorAll('tr').length,
+        linkCount: document.querySelectorAll('a').length,
+        imageCount: document.querySelectorAll('img').length
+      });
+    }
+    
+    const races = parseReggioCorre(html);
+    
+    console.log(`Found ${races.length} races`);
+    
+    // Filtra solo gare dei prossimi 2 mesi
+    const now = new Date();
+    const twoMonthsLater = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+    
+    const filteredRaces = races.filter(race => {
+      const raceDate = new Date(race.date);
+      return raceDate >= now && raceDate <= twoMonthsLater;
+    });
+    
+    res.status(200).json({
+      success: true,
+      count: filteredRaces.length,
+      totalParsed: races.length,
+      lastUpdate: new Date().toISOString(),
+      races: filteredRaces
+    });
+    
+  } catch (error) {
+    console.error('Error scraping:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+}
+
 function parseReggioCorre(html) {
   const dom = new JSDOM(html);
   const document = dom.window.document;
@@ -267,7 +341,7 @@ function parseReggioCorre(html) {
       };
     }
   }
-     
+  
   // Aggiungi l'ultima gara
   if (currentRace && currentRace.title && currentRace.distances.length > 0) {
     races.push(currentRace);
