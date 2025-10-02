@@ -582,7 +582,7 @@ END:VCALENDAR`;
                 window.URL.revokeObjectURL(url);
             };
 
-            const province = useMemo(() => {
+            const provinces = useMemo(() => {
                 return [...new Set(races.map(r => r.province).filter(Boolean))].sort();
             }, [races]);
 
