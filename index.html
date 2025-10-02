@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Calendario gare podistiche ReggioCorre - Consulta e cerca gare di corsa a Reggio Emilia e provincia">
+    <meta name="theme-color" content="#2563eb">
+    <title>ReggioCorre - Calendario Gare Podistiche</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel Standalone per JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+
+        // Icone Lucide come componenti React
+        const Search = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.35-4.35"></path>
+            </svg>
+        );
+
+        const Calendar = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+        );
+
+        const MapPin = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                <circle cx="12" cy="10" r="3"></circle>
+            </svg>
+        );
+
+        const Clock = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+        );
+
+        const Filter = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+            </svg>
+        );
+
+        const X = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        );
+
+        const Download = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+        );
+
+        const ExternalLink = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+        );
+
+        const RefreshCw = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <polyline points="1 20 1 14 7 14"></polyline>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+        );
+
+        const AlertCircle = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+        );
+
+        const Route = ({ size = 24, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="6" cy="19" r="3"></circle>
+                <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"></path>
+                <circle cx="18" cy="5" r="3"></circle>
+            </svg>
+        );
+
+        // APP COMPONENT (stesso codice dell'artifact React)
+        const App = () => {
+            const [races, setRaces] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [selectedLocation, setSelectedLocation] = useState('');
+            const [selectedType, setSelectedType] = useState('');
+            const [selectedDistance, setSelectedDistance] = useState('');
+            const [selectedDate, setSelectedDate] = useState('');
+            const [showFilters, setShowFilters] = useState(false);
+            const [selectedRace, setSelectedRace] = useState(null);
+
+            const parseReggioCorre = (html) => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const parsedRaces = [];
+                
+                const text = doc.body.textContent;
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+                
+                let i = 0;
+                let id = 1;
+                while (i < lines.length) {
+                    if (/^\d{1,2}\/\d{1,2}$/.test(lines[i])) {
+                        const dateStr = lines[i];
+                        const [day, month] = dateStr.split('/');
+                        const year = new Date().getFullYear();
+                        const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+                        
+                        i++;
+                        const dayOfWeek = lines[i];
+                        
+                        i++;
+                        const time = lines[i];
+                        
+                        i++;
+                        const title = lines[i];
+                        
+                        i++;
+                        const location = lines[i];
+                        
+                        while (i < lines.length && (lines[i].includes('png') || lines[i].includes('Maps') || lines[i].includes('Aggiungi'))) {
+                            i++;
+                        }
+                        
+                        let description = '';
+                        let distanceStr = '';
+                        while (i < lines.length && !/^\d{1,2}\/\d{1,2}$/.test(lines[i])) {
+                            const line = lines[i];
+                            if (/^[\d\s,\-\.]+$/.test(line)) {
+                                distanceStr = line;
+                                i++;
+                                break;
+                            }
+                            description += line + ' ';
+                            i++;
+                        }
+                        
+                        const distances = distanceStr
+                            .split(/[-,]/)
+                            .map(d => parseFloat(d.trim()))
+                            .filter(d => !isNaN(d) && d > 0);
+                        
+                        let type = 'Corsa su strada';
+                        const descLower = (title + ' ' + description).toLowerCase();
+                        if (descLower.includes('trail')) type = 'Trail';
+                        else if (descLower.includes('camminata')) type = 'Camminata';
+                        else if (descLower.includes('skyrace')) type = 'Skyrace';
+                        else if (descLower.includes('marathon') || descLower.includes('maratona')) type = 'Marathon';
+                        else if (descLower.includes('competitiv')) type = 'Competitiva';
+                        
+                        const isCompetitive = descLower.includes('competitiv') || descLower.includes('grand prix');
+                        
+                        let price = 'Da definire';
+                        const priceMatch = description.match(/(\d+)\s*€/);
+                        if (priceMatch) price = `${priceMatch[1]}€`;
+                        else if (descLower.includes('gratuito') || descLower.includes('gratis')) price = 'Gratuito';
+                        
+                        if (title && location && distances.length > 0) {
+                            parsedRaces.push({
+                                id: id++,
+                                date,
+                                time: time || '09:00',
+                                title: title.replace(/\d+°|\d+ª|\d+^/g, '').trim(),
+                                location: location.split(',')[0].trim(),
+                                venue: location,
+                                distances,
+                                description: description.trim(),
+                                type,
+                                isCompetitive,
+                                hasMap: true,
+                                hasAttachment: true,
+                                price
+                            });
+                        }
+                    } else {
+                        i++;
+                    }
+                }
+                
+                return parsedRaces;
+            };
+
+            const getMockRaces = () => [
+                {
+                    id: 1,
+                    date: '2025-10-04',
+                    time: '20:30',
+                    title: 'Camminata al Chiaro di Luna',
+                    location: 'Toano',
+                    venue: 'Ristorante La Collina, via Mutilati di Guerra 1, Toano',
+                    distances: [7],
+                    description: 'Solo camminata e prenotazione obbligatoria al 338/5319804. Munirsi di luce frontale o torcia.',
+                    type: 'Camminata',
+                    hasMap: true,
+                    hasAttachment: true,
+                    price: 'Gratuito'
+                },
+                {
+                    id: 2,
+                    date: '2025-10-05',
+                    time: '07:00',
+                    title: 'Tartufo Trail Running',
+                    location: 'Calestano (PR)',
+                    venue: 'CALESTANO (PR)',
+                    distances: [9, 17, 28, 43, 68],
+                    description: 'ore 7,00 – PARTENZA 68 km, ore 8,00 – PARTENZA 17, 28 e 43 km, ore 9,00 - PARTENZA 9 km',
+                    type: 'Trail',
+                    hasMap: true,
+                    hasAttachment: true,
+                    price: 'Vedi locandina'
+                },
+                {
+                    id: 3,
+                    date: '2025-10-05',
+                    time: '09:15',
+                    title: "GIR DI POS - GIRO DEI POZZI",
+                    location: 'Cavriago',
+                    venue: 'Circolo Area Feste Via Bassetta',
+                    distances: [4.5, 10, 21],
+                    description: 'Competitiva sui km 21 valida per il Grand Prix di Reggio Emilia',
+                    type: 'Competitiva',
+                    hasMap: true,
+                    hasAttachment: true,
+                    isCompetitive: true,
+                    price: 'Da definire'
+                },
+                {
+                    id: 4,
+                    date: '2025-10-12',
+                    time: '09:00',
+                    title: 'CAMMINATA di SAN LUCA',
+                    location: 'Correggio',
+                    venue: 'Salone delle Feste Via San Prospero',
+                    distances: [2.5, 6.5, 12, 21],
+                    description: 'Competitiva sui km 21 valida per il Grand Prix di Reggio Emilia',
+                    type: 'Competitiva',
+                    hasMap: true,
+                    hasAttachment: true,
+                    isCompetitive: true,
+                    price: 'Da definire'
+                },
+                {
+                    id: 5,
+                    date: '2025-10-26',
+                    time: '08:30',
+                    title: 'CANOSSA TRAIL MARATHON',
+                    location: 'Vezzano sul Crostolo',
+                    venue: 'Piazza Vittoria',
+                    distances: [12.5, 24, 42],
+                    description: 'Km 42 con 2100m D+ (ore 8:30), km 24 con 1150m D+ (ore 9:00), km 12.5 con 650m D+ (ore 9:00)',
+                    type: 'Trail Marathon',
+                    hasMap: true,
+                    hasAttachment: true,
+                    price: 'Vedi iscrizioni'
+                }
+            ];
+
+            const fetchRaces = async () => {
+                setLoading(true);
+                setError(null);
+                
+                try {
+                    const corsProxy = 'https://api.allorigins.win/raw?url=';
+                    const url = 'https://www.reggiocorre.it/calendario.aspx';
+                    
+                    const response = await fetch(corsProxy + encodeURIComponent(url));
+                    
+                    if (!response.ok) {
+                        throw new Error('Errore nel caricamento dei dati');
+                    }
+                    
+                    const html = await response.text();
+                    const parsedRaces = parseReggioCorre(html);
+                    
+                    if (parsedRaces.length === 0) {
+                        setRaces(getMockRaces());
+                        setError('Parsing fallito, mostro dati di esempio. Il sito potrebbe aver cambiato struttura.');
+                    } else {
+                        setRaces(parsedRaces);
+                    }
+                } catch (err) {
+                    console.error('Errore:', err);
+                    setError('Impossibile caricare i dati. Mostro dati di esempio.');
+                    setRaces(getMockRaces());
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                fetchRaces();
+            }, []);
+
+            const addToCalendar = (race) => {
+                const startDateTime = new Date(`${race.date}T${race.time}`);
+                const endDateTime = new Date(startDateTime.getTime() + 4 * 60 * 60 * 1000);
+
+                const formatDate = (date) => {
+                    return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                };
+
+                const icsContent = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//ReggioCorre//App//IT
+BEGIN:VEVENT
+UID:${race.id}@reggiocorre-app
+DTSTAMP:${formatDate(new Date())}
+DTSTART:${formatDate(startDateTime)}
+DTEND:${formatDate(endDateTime)}
+SUMMARY:${race.title}
+DESCRIPTION:${race.description.replace(/\n/g, '\\n')}
+LOCATION:${race.venue}
+URL:https://www.reggiocorre.it
+STATUS:CONFIRMED
+SEQUENCE:0
+END:VEVENT
+END:VCALENDAR`;
+
+                const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${race.title.replace(/[^a-z0-9]/gi, '_')}.ics`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+            };
+
+            const locations = useMemo(() => {
+                return [...new Set(races.map(r => r.location))].sort();
+            }, [races]);
+
+            const types = useMemo(() => {
+                return [...new Set(races.map(r => r.type))].sort();
+            }, [races]);
+
+            const distances = useMemo(() => {
+                const allDistances = races.flatMap(r => r.distances);
+                return [...new Set(allDistances)].sort((a, b) => a - b);
+            }, [races]);
+
+            const filteredRaces = useMemo(() => {
+                return races.filter(race => {
+                    const matchesSearch = race.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                        race.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                        race.description.toLowerCase().includes(searchTerm.toLowerCase());
+                    
+                    const matchesLocation = !selectedLocation || race.location === selectedLocation;
+                    const matchesType = !selectedType || race.type === selectedType;
+                    const matchesDistance = !selectedDistance || race.distances.includes(parseFloat(selectedDistance));
+                    const matchesDate = !selectedDate || race.date === selectedDate;
+
+                    return matchesSearch && matchesLocation && matchesType && matchesDistance && matchesDate;
+                });
+            }, [races, searchTerm, selectedLocation, selectedType, selectedDistance, selectedDate]);
+
+            const clearFilters = () => {
+                setSearchTerm('');
+                setSelectedLocation('');
+                setSelectedType('');
+                setSelectedDistance('');
+                setSelectedDate('');
+            };
+
+            const activeFiltersCount = [selectedLocation, selectedType, selectedDistance, selectedDate].filter(Boolean).length;
+
+            const formatDate = (dateStr) => {
+                const date = new Date(dateStr);
+                return date.toLocaleDateString('it-IT', { 
+                    weekday: 'short', 
+                    day: 'numeric', 
+                    month: 'short',
+                    year: 'numeric'
+                });
+            };
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+                        <div className="text-center">
+                            <RefreshCw className="animate-spin text-blue-600 mx-auto mb-4" size={48} />
+                            <p className="text-gray-600 text-lg">Caricamento gare...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (selectedRace) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 sticky top-0 z-10 shadow-lg">
+                            <button 
+                                onClick={() => setSelectedRace(null)}
+                                className="flex items-center gap-2 text-white hover:text-blue-100"
+                            >
+                                <X size={24} />
+                                <span className="font-semibold">Torna al calendario</span>
+                            </button>
+                        </div>
+
+                        <div className="p-4 max-w-2xl mx-auto">
+                            <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+                                <div className="bg-gradient-to-r from-blue-500 to-indigo-500 p-6 text-white">
+                                    <div className="flex items-start justify-between mb-2">
+                                        <h1 className="text-2xl font-bold pr-4">{selectedRace.title}</h1>
+                                        {selectedRace.isCompetitive && (
+                                            <span className="bg-yellow-400 text-yellow-900 px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap">
+                                                COMPETITIVA
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-2 text-blue-100 mb-1">
+                                        <Calendar size={16} />
+                                        <span className="text-sm">{formatDate(selectedRace.date)} • {selectedRace.time}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-blue-100">
+                                        <MapPin size={16} />
+                                        <span className="text-sm">{selectedRace.location}</span>
+                                    </div>
+                                </div>
+
+                                <div className="p-6 space-y-6">
+                                    <div>
+                                        <h2 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                                            <MapPin size={18} className="text-blue-600" />
+                                            Luogo di ritrovo
+                                        </h2>
+                                        <p className="text-gray-700">{selectedRace.venue}</p>
+                                    </div>
+
+                                    <div>
+                                        <h2 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                                            <Route size={18} className="text-blue-600" />
+                                            Percorsi disponibili
+                                        </h2>
+                                        <div className="flex flex-wrap gap-2">
+                                            {selectedRace.distances.map((dist, idx) => (
+                                                <span key={idx} className="bg-blue-100 text-blue-800 px-4 py-2 rounded-lg font-semibold">
+                                                    {dist} km
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <h2 className="font-semibold text-gray-900 mb-2">Tipologia</h2>
+                                        <span className="bg-gray-100 text-gray-800 px-3 py-1 rounded-lg text-sm">
+                                            {selectedRace.type}
+                                        </span>
+                                    </div>
+
+                                    <div>
+                                        <h2 className="font-semibold text-gray-900 mb-2">Descrizione</h2>
+                                        <p className="text-gray-700 leading-relaxed">{selectedRace.description}</p>
+                                    </div>
+
+                                    <div>
+                                        <h2 className="font-semibold text-gray-900 mb-2">Quota di iscrizione</h2>
+                                        <p className="text-gray-700">{selectedRace.price}</p>
+                                    </div>
+
+                                    <div className="border-t pt-6">
+                                        <h2 className="font-semibold text-gray-900 mb-3">Azioni</h2>
+                                        <div className="space-y-2">
+                                            <button
+                                                onClick={() => addToCalendar(selectedRace)}
+                                                className="w-full flex items-center gap-2 text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 p-4 rounded-lg font-semibold shadow-md"
+                                            >
+                                                <Download size={20} />
+                                                <span>Aggiungi al Calendario</span>
+                                            </button>
+                                            
+                                            {selectedRace.hasMap && (
+                                                <a 
+                                                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedRace.venue + ' ' + selectedRace.location)}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="flex items-center gap-2 text-blue-600 hover:text-blue-700 p-3 bg-blue-50 rounded-lg"
+                                                >
+                                                    <MapPin size={18} />
+                                                    <span className="font-medium">Apri in Google Maps</span>
+                                                    <ExternalLink size={16} className="ml-auto" />
+                                                </a>
+                                            )}
+                                            
+                                            <a
+                                                href="https://www.reggiocorre.it/calendario.aspx"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="flex items-center gap-2 text-indigo-600 hover:text-indigo-700 p-3 bg-indigo-50 rounded-lg"
+                                            >
+                                                <ExternalLink size={18} />
+                                                <span className="font-medium">Vedi sul sito ReggioCorre</span>
+                                                <ExternalLink size={16} className="ml-auto" />
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+                    <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-6 shadow-lg">
+                        <div className="max-w-6xl mx-auto">
+                            <div className="flex items-start justify-between">
+                                <div>
+                                    <h1 className="text-3xl font-bold mb-2">ReggioCorre</h1>
+                                    <p className="text-blue-100">Calendario gare podistiche</p>
+                                </div>
+                                <button
+                                    onClick={fetchRaces}
+                                    className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition-colors"
+                                    title="Ricarica dati"
+                                >
+                                    <RefreshCw size={18} />
+                                    <span className="text-sm">Aggiorna</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {error && (
+                        <div className="max-w-6xl mx-auto mt-4 px-4">
+                            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg flex items-start gap-3">
+                                <AlertCircle className="text-yellow-600 flex-shrink-0" size={20} />
+                                <div>
+                                    <p className="text-yellow-800 text-sm">{error}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="sticky top-0 z-10 bg-white shadow-md p-4">
+                        <div className="max-w-6xl mx-auto space-y-3">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                                <input
+                                    type="text"
+                                    placeholder="Cerca gare per nome, località o descrizione..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                />
+                            </div>
+
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setShowFilters(!showFilters)}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                                        showFilters || activeFiltersCount > 0
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    <Filter size={18} />
+                                    Filtri
+                                    {activeFiltersCount > 0 && (
+                                        <span className="bg-white text-blue-600 px-2 py-0.5 rounded-full text-xs font-bold">
+                                            {activeFiltersCount}
+                                        </span>
+                                    )}
+                                </button>
+                                
+                                {activeFiltersCount > 0 && (
+                                    <button
+                                        onClick={clearFilters}
+                                        className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 transition-colors"
+                                    >
+                                        <X size={18} />
+                                        Rimuovi filtri
+                                    </button>
+                                )}
+                            </div>
+
+                            {showFilters && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-4 bg-gray-50 rounded-lg">
+                                    <select
+                                        value={selectedLocation}
+                                        onChange={(e) => setSelectedLocation(e.target.value)}
+                                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value="">Tutte le località</option>
+                                        {locations.map(loc => (
+                                            <option key={loc} value={loc}>{loc}</option>
+                                        ))}
+                                    </select>
+
+                                    <select
+                                        value={selectedType}
+                                        onChange={(e) => setSelectedType(e.target.value)}
+                                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value="">Tutti i tipi</option>
+                                        {types.map(type => (
+                                            <option key={type} value={type}>{type}</option>
+                                        ))}
+                                    </select>
+
+                                    <select
+                                        value={selectedDistance}
+                                        onChange={(e) => setSelectedDistance(e.target.value)}
+                                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value="">Tutte le distanze</option>
+                                        {distances.map(dist => (
+                                            <option key={dist} value={dist}>{dist} km</option>
+                                        ))}
+                                    </select>
+
+                                    <input
+                                        type="date"
+                                        value={selectedDate}
+                                        onChange={(e) => setSelectedDate(e.target.value)}
+                                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="max-w-6xl mx-auto p-4">
+                        <div className="mb-4 text-gray-600">
+                            <span className="font-semibold">{filteredRaces.length}</span> gare trovate
+                        </div>
+
+                        <div className="space-y-4">
+                            {filteredRaces.map(race => (
+                                <div
+                                    key={race.id}
+                                    className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all overflow-hidden"
+                                >
+                                    <div className="p-5">
+                                        <div className="flex items-start justify-between mb-3">
+                                            <div className="flex-1 cursor-pointer" onClick={() => setSelectedRace(race)}>
+                                                <h3 className="text-xl font-bold text-gray-900 mb-2">{race.title}</h3>
+                                                <div className="flex flex-wrap gap-2 text-sm text-gray-600">
+                                                    <div className="flex items-center gap-1">
+                                                        <Calendar size={16} className="text-blue-600" />
+                                                        <span>{formatDate(race.date)}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                        <Clock size={16} className="text-blue-600" />
+                                                        <span>{race.time}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                        <MapPin size={16} className="text-blue-600" />
+                                                        <span>{race.location}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            {race.isCompetitive && (
+                                                <span className="bg-yellow-400 text-yellow-900 px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ml-2">
+                                                    COMPETITIVA
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2 mb-3 cursor-pointer" onClick={() => setSelectedRace(race)}>
+                                            {race.distances.slice(0, 5).map((dist, idx) => (
+                                                <span key={idx} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-semibold">
+                                                    {dist} km
+                                                </span>
+                                            ))}
+                                            {race.distances.length > 5 && (
+                                                <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm">
+                                                    +{race.distances.length - 5}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <p className="text-gray-600 text-sm line-clamp-2 mb-3 cursor-pointer" onClick={() => setSelectedRace(race)}>
+                                            {race.description}
+                                        </p>
+
+                                        <div className="flex flex-wrap gap-2 items-center justify-between">
+                                            <div className="flex flex-wrap gap-2">
+                                                <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-lg text-xs">
+                                                    {race.type}
+                                                </span>
+                                                {race.hasMap && (
+                                                    <span className="bg-green-100 text-green-700 px-3 py-1 rounded-lg text-xs flex items-center gap-1">
+                                                        <MapPin size={12} />
+                                                        Mappa
+                                                    </span>
+                                                )}
+                                            </div>
+                                            
+                                            <button
+                                                onClick={() => addToCalendar(race)}
+                                                className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                                            >
+                                                <Download size={16} />
+                                                Calendario
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {filteredRaces.length === 0 && (
+                            <div className="text-center py-12">
+                                <div className="text-gray-400 mb-4">
+                                    <Search size={64} className="mx-auto" />
+                                </div>
+                                <h3 className="text-xl font-semibold text-gray-700 mb-2">Nessuna gara trovata</h3>
+                                <p className="text-gray-500">Prova a modificare i filtri di ricerca</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
