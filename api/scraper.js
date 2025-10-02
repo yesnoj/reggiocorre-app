@@ -68,13 +68,13 @@ function parseReggioCorre(html) {
   const document = dom.window.document;
   const races = [];
   
-  // Strategia alternativa: cerca tutto il testo e identifica pattern
+  // Estrai tutto il testo e dividilo in linee
   const bodyText = document.body.textContent;
   const lines = bodyText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   
   let id = 1;
   
-  for (let i = 0; i < lines.length - 5; i++) {
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
     // Cerca pattern data: formato dd/mm
@@ -85,49 +85,59 @@ function parseReggioCorre(html) {
       const year = new Date().getFullYear();
       const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
       
-      // Prendi le prossime linee
-      const nextLines = lines.slice(i + 1, i + 10);
+      // La struttura è:
+      // i     -> data (es. "4/10")
+      // i+1   -> giorno settimana (es. "sab")
+      // i+2   -> provincia (es. "RE", "MO", "XY")
+      // i+3   -> orario (es. "20:30")
+      // i+4   -> titolo gara
+      // i+5   -> località/venue
+      // i+6+  -> descrizione
+      // ...   -> distanze (numero con trattini)
       
-      let dayOfWeek = nextLines[0] || '';
-      let time = '09:00';
-      let title = '';
-      let location = '';
+      const dayOfWeek = lines[i + 1] || '';
+      const province = lines[i + 2] || '';
+      const time = lines[i + 3] || '09:00';
+      const title = lines[i + 4] || '';
+      const venue = lines[i + 5] || '';
+      
+      // Estrai località dal venue (prima della virgola)
+      const location = venue.split(',').pop()?.trim() || venue;
+      
+      // Cerca descrizione e distanze nelle linee successive
       let description = '';
       let distances = [];
+      let foundDistances = false;
       
-      // Cerca l'orario nelle prossime linee
-      for (let j = 0; j < nextLines.length; j++) {
-        const l = nextLines[j];
+      for (let j = i + 6; j < i + 20; j++) {
+        const l = lines[j];
         
-        // Orario (hh:mm)
-        if (/^\d{1,2}:\d{2}$/.test(l) && !time) {
-          time = l;
-        }
-        // Titolo (prima stringa lunga che non è un orario)
-        else if (l.length > 10 && !title && !l.includes('Aggiungi') && !l.includes('Google')) {
-          title = l;
-        }
-        // Località (dopo il titolo)
-        else if (title && l.length > 3 && !location && !l.includes('png') && !l.includes('Maps')) {
-          location = l;
-        }
-        // Distanze (pattern: numeri separati da - o ,)
-        if (/^[\d\s,\-\.]+$/.test(l) && l.length > 1) {
-          const dists = l.split(/[-,\s]/)
+        // Se troviamo una nuova data, fermiamoci
+        if (/^\d{1,2}\/\d{1,2}$/.test(l)) break;
+        
+        // Cerca distanze (pattern: numeri con trattini o virgole, spazi)
+        // Es: "68 - 43 - 28" o "1,5-7,2-11" o "2,5- 6,5-12- 21"
+        if (/^[\d\s,\-\.]+$/.test(l) && l.length < 30) {
+          const dists = l
+            .replace(/\s+/g, '') // rimuovi spazi
+            .split(/[-,]/) // split su - o ,
             .map(d => parseFloat(d.trim()))
             .filter(d => !isNaN(d) && d > 0 && d < 200);
-          if (dists.length > 0 && distances.length === 0) {
+          
+          if (dists.length > 0 && !foundDistances) {
             distances = dists;
+            foundDistances = true;
+            continue; // Non aggiungere alla descrizione
           }
         }
         
-        // Costruisci descrizione
-        if (j > 0 && l.length > 5 && !l.includes('png')) {
+        // Aggiungi alla descrizione (escludi linee troppo corte o con "png")
+        if (l.length > 5 && !l.includes('png') && !l.includes('http')) {
           description += l + ' ';
         }
       }
       
-      // Tipo di gara
+      // Determina il tipo di gara
       let type = 'Corsa su strada';
       const descLower = (title + ' ' + description).toLowerCase();
       if (descLower.includes('trail')) type = 'Trail';
@@ -138,21 +148,21 @@ function parseReggioCorre(html) {
       
       const isCompetitive = descLower.includes('competitiv') || descLower.includes('grand prix');
       
-      // Prezzo
+      // Estrai prezzo
       let price = 'Da definire';
       const priceMatch = description.match(/(\d+)\s*€/);
       if (priceMatch) price = `${priceMatch[1]}€`;
-      else if (descLower.includes('gratuito') || descLower.includes('gratis')) price = 'Gratuito';
+      else if (descLower.includes('gratuito') || descLower.includes('gratis') || descLower.includes('libera')) price = 'Gratuito';
       
-      // Aggiungi solo se abbiamo dati minimi
-      if (title && location && distances.length > 0) {
+      // Aggiungi solo se abbiamo dati minimi necessari
+      if (title && title.length > 3 && location && distances.length > 0) {
         races.push({
           id: id++,
           date,
-          time,
+          time: time && /^\d{1,2}:\d{2}$/.test(time) ? time : '09:00',
           title: title.replace(/\d+°|\d+ª|\d+\^/g, '').trim(),
-          location: location.split(',')[0].trim(),
-          venue: location,
+          location: location.trim(),
+          venue: venue.trim(),
           distances,
           description: description.trim().substring(0, 300),
           type,
@@ -162,9 +172,6 @@ function parseReggioCorre(html) {
           price
         });
       }
-      
-      // Salta le linee già processate
-      i += 10;
     }
   }
   
