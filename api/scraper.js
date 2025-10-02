@@ -77,215 +77,105 @@ function parseReggioCorre(html) {
   const document = dom.window.document;
   const races = [];
   
-  // Trova tutti i blocchi di gara nel DOM
-  const tableRows = document.querySelectorAll('table tr');
+  // Estrai tutto il testo dal body e analizzalo
+  const bodyText = document.body.textContent;
+  const lines = bodyText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   
-  let currentRace = null;
   let id = 1;
+  let i = 0;
   
-  for (const row of tableRows) {
-    const cells = row.querySelectorAll('td');
-    if (cells.length === 0) continue;
-    
-    const firstCell = cells[0];
-    const text = firstCell.textContent.trim();
+  while (i < lines.length) {
+    const line = lines[i];
     
     // Cerca pattern data: formato dd/mm
-    const dateMatch = text.match(/^(\d{1,2})\/(\d{1,2})$/);
+    const dateMatch = line.match(/^(\d{1,2})\/(\d{1,2})$/);
     
-    if (dateMatch && cells.length >= 2) {
-      // Salva la gara precedente se esiste
-      if (currentRace && currentRace.title && currentRace.distances.length > 0) {
-        races.push(currentRace);
-      }
-      
-      // Inizia nuova gara
+    if (dateMatch) {
       const [_, day, month] = dateMatch;
       const year = new Date().getFullYear();
       const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
       
-      // La seconda cella contiene tutto il resto
-      const contentCell = cells[1];
-      const contentText = contentCell.textContent;
-      const contentLines = contentText.split('\n').map(l => l.trim()).filter(l => l);
+      // Struttura trovata nel debug:
+      // i     -> data (es. "4/10")
+      // i+1   -> giorno settimana (es. "sab")
+      // i+2   -> provincia (es. "RE", "MO", "XY")
+      // i+3   -> orario (es. "20:30")
+      // i+4   -> titolo gara
+      // i+5   -> venue/indirizzo
+      // i+6+  -> descrizione e distanze
       
-      // Estrai giorno della settimana (es. "sab", "dom")
-      const dayOfWeek = contentLines[0] || '';
+      i++; // Salta al giorno
+      const dayOfWeek = lines[i] || '';
       
-      // Estrai orario (cerca pattern HH:MM)
-      let time = '09:00';
-      const timeMatch = contentText.match(/(\d{1,2}:\d{2})/);
-      if (timeMatch) time = timeMatch[1];
+      i++; // Salta alla provincia
+      const provinceCode = lines[i] || 'XY';
       
-      // Estrai titolo (la riga più lunga che non è un orario o coordinate)
-      let title = '';
-      for (const line of contentLines) {
-        if (line.length > title.length && 
-            !line.match(/^\d{1,2}:\d{2}$/) && 
-            !line.match(/^[A-Z]{2}$/) &&
-            line.length > 10) {
-          title = line;
-        }
-      }
+      i++; // Salta all'orario
+      const time = lines[i] || '09:00';
       
-      // Estrai venue (cerca indirizzo con virgola)
-      let venue = '';
-      for (const line of contentLines) {
-        if (line.includes(',') && line.length > 15) {
-          venue = line;
-          break;
-        }
-      }
+      i++; // Salta al titolo
+      const title = lines[i] || '';
       
-      // Estrai location dalla venue
+      i++; // Salta al venue
+      const venue = lines[i] || '';
+      
+      // Converti codice provincia in nome completo
+      let provinceName = 'Fuori Provincia';
+      if (provinceCode === 'MO') provinceName = 'Modena';
+      else if (provinceCode === 'RE') provinceName = 'Reggio Emilia';
+      else if (provinceCode === 'BO') provinceName = 'Bologna';
+      
+      // Estrai località dal venue
       let location = venue;
       if (venue.includes(',')) {
         const parts = venue.split(',');
         location = parts[parts.length - 1].trim();
       }
       
-      // Determina provincia dal testo
-      let province = 'XY';
-      let provinceName = 'Fuori Provincia';
-      
-      if (contentText.includes('(PR)') || location.includes('(PR)')) {
-        province = 'XY';
-        provinceName = 'Fuori Provincia';
-      } else if (contentText.match(/\b(Reggio|Cavriago|Toano|Vezzano|Quattro Castella|Correggio)\b/i)) {
-        province = 'RE';
-        provinceName = 'Reggio Emilia';
-      } else if (contentText.match(/\b(Modena|Formigine|Sassuolo|Maranello|Montefiorino|Finale Emilia|Pievepelago|Cittanova)\b/i)) {
-        province = 'MO';
-        provinceName = 'Modena';
-      } else if (contentText.match(/\b(Bologna)\b/i)) {
-        province = 'BO';
-        provinceName = 'Bologna';
+      // Pulisci location
+      if (location.length > 50) {
+        location = location.split(' ').slice(0, 3).join(' ');
       }
       
-      // Estrai descrizione (tutto il testo meno titolo e venue)
-      let description = contentText
-        .replace(title, '')
-        .replace(venue, '')
-        .replace(/\d{1,2}:\d{2}/g, '')
-        .replace(/png\/\w+\.png/g, '')
-        .replace(/Aggiungi al Calendario/g, '')
-        .replace(/Google Maps/g, '')
-        .split('\n')
-        .map(l => l.trim())
-        .filter(l => l.length > 5)
-        .join(' ')
-        .trim();
+      // Cerca descrizione e distanze nelle linee successive
+      i++;
+      let description = '';
+      let distances = [];
+      let foundDistances = false;
       
-      // Estrai distanze
-      const distances = [];
-      const distanceMatch = contentText.match(/(\d+[\.,]?\d*)\s*[-–]\s*(\d+[\.,]?\d*)\s*[-–]?\s*(\d+[\.,]?\d*)?/);
-      if (distanceMatch) {
-        for (let i = 1; i < distanceMatch.length; i++) {
-          if (distanceMatch[i]) {
-            const dist = parseFloat(distanceMatch[i].replace(',', '.'));
-            if (!isNaN(dist) && dist > 0 && dist < 200) {
-              distances.push(dist);
-            }
+      // Leggi le prossime 20 righe o fino alla prossima data
+      for (let j = 0; j < 20 && i < lines.length; j++, i++) {
+        const l = lines[i];
+        
+        // Se troviamo una nuova data, fermiamoci e torna indietro di 1
+        if (/^\d{1,2}\/(\d{1,2})$/.test(l)) {
+          i--; // Torna indietro per processare questa data al prossimo ciclo
+          break;
+        }
+        
+        // Cerca distanze (numeri separati da trattini o virgole+trattini)
+        // Es: "68 - 43 - 28" o "1,5-7,2-11" o "2,5- 6,5-12- 21" o "12-19-29"
+        if (/^[\d\s,\-\.]+$/.test(l) && l.length < 40 && !foundDistances) {
+          // Rimuovi spazi e splitta sui trattini
+          const parts = l.replace(/\s+/g, '').split('-');
+          const dists = parts
+            .map(p => parseFloat(p.replace(',', '.')))
+            .filter(d => !isNaN(d) && d > 0 && d < 200);
+          
+          if (dists.length > 0) {
+            distances = dists;
+            foundDistances = true;
+            continue;
           }
         }
-      }
-      
-      // Se non trovate con regex, cerca pattern semplice
-      if (distances.length === 0) {
-        const simpleDistMatch = contentText.match(/(\d+[\.,]?\d*)\s*km/gi);
-        if (simpleDistMatch) {
-          for (const match of simpleDistMatch) {
-            const dist = parseFloat(match.replace(',', '.').replace(/[^\d\.]/g, ''));
-            if (!isNaN(dist) && dist > 0 && dist < 200 && !distances.includes(dist)) {
-              distances.push(dist);
-            }
-          }
-        }
-      }
-      
-      // ESTRAZIONE ALLEGATI E LINK
-      const attachments = {
-        hasCalendar: false,
-        hasMaps: false,
-        hasAttachment1: false,
-        hasAttachment2: false,
-        hasGPX: false,
-        hasEmail: false,
-        hasWebsite: false,
-        hasRegistration: false,
         
-        // Link estratti
-        mapLink: venue ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venue)}` : null,
-        emailAddress: null,
-        websiteUrl: null,
-        registrationUrl: null,
-        attachmentUrls: []
-      };
-      
-      // Cerca immagini e link nel HTML
-      const images = contentCell.querySelectorAll('img');
-      const links = contentCell.querySelectorAll('a');
-      
-      for (const img of images) {
-        const src = img.getAttribute('src') || '';
-        const alt = img.getAttribute('alt') || '';
-        
-        if (src.includes('calendar.png') || alt.includes('Calendario')) {
-          attachments.hasCalendar = true;
-        }
-        if (src.includes('maps.png') || alt.includes('Maps')) {
-          attachments.hasMaps = true;
-        }
-        if (src.includes('allegato1.png') || alt.includes('Allegato')) {
-          attachments.hasAttachment1 = true;
-        }
-        if (src.includes('allegato2.png')) {
-          attachments.hasAttachment2 = true;
-        }
-        if (src.includes('gpx.png') || alt.includes('GPX')) {
-          attachments.hasGPX = true;
-        }
-        if (src.includes('email.png') || alt.includes('Email')) {
-          attachments.hasEmail = true;
-        }
-        if (src.includes('www.png') || alt.includes('Www')) {
-          attachments.hasWebsite = true;
-        }
-        if (src.includes('iscrizione.png') || alt.includes('Iscrizione')) {
-          attachments.hasRegistration = true;
-        }
-      }
-      
-      // Estrai email dalla descrizione
-      const emailMatch = description.match(/[\w\.-]+@[\w\.-]+\.\w+/);
-      if (emailMatch) {
-        attachments.emailAddress = emailMatch[0];
-      }
-      
-      // Estrai telefono
-      const phoneMatch = description.match(/(\d{3}[\s\-]?\d{3}[\s\-]?\d{4}|\d{10})/);
-      const phoneNumber = phoneMatch ? phoneMatch[0].replace(/\s|-/g, '') : null;
-      
-      // Estrai URL dai link
-      for (const link of links) {
-        const href = link.getAttribute('href') || '';
-        
-        if (href.includes('maps.google') || href.includes('google.com/maps')) {
-          attachments.mapLink = href;
-        } else if (href.includes('mailto:')) {
-          attachments.emailAddress = href.replace('mailto:', '');
-        } else if (href.includes('http') && !href.includes('reggiocorre.it')) {
-          if (href.match(/iscrizione|signup|register|iscriviti/i) || attachments.hasRegistration) {
-            attachments.registrationUrl = href;
-          } else if (attachments.hasWebsite) {
-            attachments.websiteUrl = href;
-          } else {
-            attachments.attachmentUrls.push(href);
-          }
-        } else if (href.includes('.pdf') || href.includes('.jpg') || href.includes('.png') || href.includes('.gpx')) {
-          // Converti URL relativi in assoluti
-          const absoluteUrl = href.startsWith('http') ? href : `https://www.reggiocorre.it/${href}`;
-          attachments.attachmentUrls.push(absoluteUrl);
+        // Aggiungi alla descrizione (escludi linee vuote, con "png", link, ecc)
+        if (l.length > 3 && 
+            !l.includes('png') && 
+            !l.includes('http') &&
+            !l.includes('Aggiungi') &&
+            !l.includes('Google Maps')) {
+          description += l + ' ';
         }
       }
       
@@ -320,31 +210,62 @@ function parseReggioCorre(html) {
         society = societyMatch[1].trim();
       }
       
-      currentRace = {
-        id: id++,
-        date,
-        time,
-        title: title.replace(/\d+°|\d+ª|\d+\^/g, '').trim(),
-        location: location.trim(),
-        province: provinceName,
-        provinceCode: province,
-        venue: venue.trim(),
-        distances: [...new Set(distances)].sort((a, b) => a - b),
-        description: description.trim(),
-        type,
-        isCompetitive,
-        price,
-        organizer,
-        society,
-        phoneNumber,
-        attachments
+      // Estrai email
+      let emailAddress = null;
+      const emailMatch = description.match(/[\w\.-]+@[\w\.-]+\.\w+/);
+      if (emailMatch) {
+        emailAddress = emailMatch[0];
+      }
+      
+      // Estrai telefono
+      let phoneNumber = null;
+      const phoneMatch = description.match(/(\d{3}[\s\-]?\d{3}[\s\-]?\d{4}|\d{10})/);
+      if (phoneMatch) {
+        phoneNumber = phoneMatch[0].replace(/\s|-/g, '');
+      }
+      
+      // Crea oggetto attachments
+      const attachments = {
+        hasCalendar: true,
+        hasMaps: true,
+        hasAttachment1: description.includes('volant') || description.includes('locand'),
+        hasAttachment2: false,
+        hasGPX: description.toLowerCase().includes('gpx'),
+        hasEmail: emailAddress !== null,
+        hasWebsite: description.toLowerCase().includes('www') || description.toLowerCase().includes('http'),
+        hasRegistration: description.toLowerCase().includes('iscri'),
+        mapLink: venue ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venue)}` : null,
+        emailAddress,
+        websiteUrl: null,
+        registrationUrl: null,
+        attachmentUrls: []
       };
+      
+      // Aggiungi solo se abbiamo dati minimi
+      if (title && title.length > 3 && location && distances.length > 0) {
+        races.push({
+          id: id++,
+          date,
+          time: time && /^\d{1,2}:\d{2}$/.test(time) ? time : '09:00',
+          title: title.replace(/\d+°|\d+ª|\d+\^/g, '').trim(),
+          location: location.trim(),
+          province: provinceName,
+          provinceCode: provinceCode,
+          venue: venue.trim(),
+          distances: [...new Set(distances)].sort((a, b) => a - b),
+          description: description.trim().substring(0, 400),
+          type,
+          isCompetitive,
+          price,
+          organizer,
+          society,
+          phoneNumber,
+          attachments
+        });
+      }
+    } else {
+      i++;
     }
-  }
-  
-  // Aggiungi l'ultima gara
-  if (currentRace && currentRace.title && currentRace.distances.length > 0) {
-    races.push(currentRace);
   }
   
   return races;
