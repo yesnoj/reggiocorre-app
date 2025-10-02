@@ -583,7 +583,7 @@ END:VCALENDAR`;
             };
 
             const locations = useMemo(() => {
-                return [...new Set(races.map(r => r.location))].sort();
+                return [...new Set(races.map(r => r.province).filter(Boolean))].sort();
             }, [races]);
 
             const types = useMemo(() => {
@@ -601,7 +601,7 @@ END:VCALENDAR`;
                                         race.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                         race.description.toLowerCase().includes(searchTerm.toLowerCase());
                     
-                    const matchesLocation = !selectedProvince || race.location === selectedProvince;
+                    const matchesProvince = !selectedProvince || (race.province && race.province === selectedProvince);
                     const matchesType = !selectedType || race.type === selectedType;
                     const matchesDistance = !selectedDistance || race.distances.includes(parseFloat(selectedDistance));
                     const matchesDate = !selectedDate || race.date === selectedDate;
@@ -612,7 +612,7 @@ END:VCALENDAR`;
 
             const clearFilters = () => {
                 setSearchTerm('');
-                setselectedProvince('');
+                setSelectedProvince('');
                 setSelectedType('');
                 setSelectedDistance('');
                 setSelectedDate('');
@@ -976,4 +976,5 @@ END:VCALENDAR`;
     </script>
 </body>
 </html>
+
 
