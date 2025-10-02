@@ -178,6 +178,8 @@ function parseReggioCorre(html) {
           time: time && /^\d{1,2}:\d{2}$/.test(time) ? time : '09:00',
           title: title.replace(/\d+°|\d+ª|\d+\^/g, '').trim(),
           location: location.trim(),
+          province: provinceName, // NUOVO: provincia per il filtro
+          provinceCode: province, // NUOVO: codice provincia (MO, RE, BO, XY)
           venue: venue.trim(),
           distances,
           description: description.trim().substring(0, 300),
