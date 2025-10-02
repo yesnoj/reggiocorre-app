@@ -148,7 +148,7 @@ function parseReggioCorre(html) {
         const l = lines[i];
         
         // Se troviamo una nuova data, fermiamoci e torna indietro di 1
-        if (/^\d{1,2}\/(\d{1,2})$/.test(l)) {
+        if (/^\d{1,2}\/\d{1,2}$/.test(l)) {
           i--; // Torna indietro per processare questa data al prossimo ciclo
           break;
         }
