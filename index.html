@@ -487,59 +487,67 @@
                 setError(null);
                 
                 try {
-                    // Prova a caricare dal backend Vercel
-                    // IMPORTANTE: Sostituisci con il TUO URL Vercel dopo il deploy!
+                    // Prova prima con il backend Vercel
                     const backendUrl = 'https://reggiocorre-app.vercel.app/api/scraper';
-                    const response = await fetch(backendUrl);
                     
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.success && data.races.length > 0) {
-                            setRaces(data.races);
-                            console.log(`Loaded ${data.races.length} races from backend`);
-                            return;
+                    try {
+                        const response = await fetch(backendUrl);
+                        
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.success && data.races && data.races.length > 0) {
+                                setRaces(data.races);
+                                console.log(`✅ Loaded ${data.races.length} races from Vercel backend`);
+                                setLoading(false);
+                                return;
+                            }
                         }
+                    } catch (backendError) {
+                        console.warn('⚠️ Vercel backend not available:', backendError.message);
                     }
                     
-                    // Se il backend non funziona, usa dati di esempio
-                    throw new Error('Backend non disponibile');
-                    
-                } catch (err) {
-                    console.warn('Backend error, using mock data:', err);
-                    setRaces(getMockRaces());
-                    setError('Impossibile caricare dati aggiornati. Mostro dati di esempio. Per informazioni aggiornate visita reggiocorre.it');
-                } finally {
-                    setLoading(false);
-                }
-                
-                /* Codice per parsing diretto (disabilitato perché non affidabile)
-                try {
+                    // Fallback: prova parsing diretto con CORS proxy
+                    console.log('🔄 Trying direct parsing with CORS proxy...');
                     const corsProxy = 'https://api.allorigins.win/raw?url=';
-                    const url = 'https://www.reggiocorre.it/calendario.aspx';
+                    const targetUrl = 'https://www.reggiocorre.it/calendario.aspx';
                     
-                    const response = await fetch(corsProxy + encodeURIComponent(url));
-                    
-                    if (!response.ok) {
-                        throw new Error('Errore nel caricamento dei dati');
+                    try {
+                        const proxyResponse = await fetch(corsProxy + encodeURIComponent(targetUrl));
+                        
+                        if (proxyResponse.ok) {
+                            const html = await proxyResponse.text();
+                            const parsedRaces = parseReggioCorre(html);
+                            
+                            if (parsedRaces && parsedRaces.length > 0) {
+                                // Filtra gare dei prossimi 2 mesi
+                                const now = new Date();
+                                const twoMonthsLater = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+                                
+                                const filtered = parsedRaces.filter(race => {
+                                    const raceDate = new Date(race.date);
+                                    return raceDate >= now && raceDate <= twoMonthsLater;
+                                });
+                                
+                                setRaces(filtered);
+                                console.log(`✅ Parsed ${filtered.length} races from direct scraping`);
+                                setLoading(false);
+                                return;
+                            }
+                        }
+                    } catch (proxyError) {
+                        console.warn('⚠️ CORS proxy failed:', proxyError.message);
                     }
                     
-                    const html = await response.text();
-                    const parsedRaces = parseReggioCorre(html);
+                    // Ultimo fallback: usa dati mock
+                    throw new Error('All data sources failed');
                     
-                    if (parsedRaces.length === 0) {
-                        setRaces(getMockRaces());
-                        setError('Parsing fallito, mostro dati di esempio.');
-                    } else {
-                        setRaces(parsedRaces);
-                    }
                 } catch (err) {
-                    console.error('Errore:', err);
-                    setError('Impossibile caricare i dati. Mostro dati di esempio.');
+                    console.warn('⚠️ Using mock data:', err.message);
                     setRaces(getMockRaces());
+                    setError('⚠️ Impossibile caricare dati aggiornati dal sito ReggioCorre. Mostro dati di esempio. Per informazioni aggiornate visita reggiocorre.it');
                 } finally {
                     setLoading(false);
                 }
-                */
             };
 
             useEffect(() => {
