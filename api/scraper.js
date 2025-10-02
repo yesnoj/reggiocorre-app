@@ -101,16 +101,25 @@ function parseReggioCorre(html) {
       const title = lines[i + 4] || '';
       const venue = lines[i + 5] || '';
       
-      // Estrai località dal venue (prima della virgola)
-      const location = venue.split(',').pop()?.trim() || venue;
+      // Estrai località dal venue (prendi l'ultima parte dopo la virgola)
+      let location = venue;
+      if (venue.includes(',')) {
+        const parts = venue.split(',');
+        location = parts[parts.length - 1].trim();
+      }
+      
+      // Se location è ancora troppo lungo, prendi solo le prime parole
+      if (location.length > 50) {
+        location = location.split(' ').slice(0, 3).join(' ');
+      }
       
       // Cerca descrizione e distanze nelle linee successive
       let description = '';
       let distances = [];
       let foundDistances = false;
       
-      for (let j = i + 6; j < i + 20; j++) {
-        const l = lines[j];
+      for (let j = i + 6; j < Math.min(i + 20, lines.length); j++) {
+        const l = lines[j] || '';
         
         // Se troviamo una nuova data, fermiamoci
         if (/^\d{1,2}\/\d{1,2}$/.test(l)) break;
@@ -155,7 +164,7 @@ function parseReggioCorre(html) {
       else if (descLower.includes('gratuito') || descLower.includes('gratis') || descLower.includes('libera')) price = 'Gratuito';
       
       // Aggiungi solo se abbiamo dati minimi necessari
-      if (title && title.length > 3 && location && distances.length > 0) {
+      if (title && title.length > 3 && location && location.length > 0 && distances && distances.length > 0) {
         races.push({
           id: id++,
           date,
