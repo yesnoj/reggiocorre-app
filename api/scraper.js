@@ -1,11 +1,8 @@
 // api/scraper.js - Vercel Serverless Function
-// Questo file va nella cartella api/ del progetto
-
 import fetch from 'node-fetch';
 import { JSDOM } from 'jsdom';
 
 export default async function handler(req, res) {
-  // Abilita CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET');
   res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
@@ -16,7 +13,25 @@ export default async function handler(req, res) {
     const response = await fetch('https://www.reggiocorre.it/calendario.aspx');
     const html = await response.text();
     
-    console.log('Parsing HTML...');
+    console.log('HTML length:', html.length);
+    
+    // DEBUG MODE: Se c'è il parametro ?debug=true mostra l'HTML grezzo
+    if (req.query.debug === 'true') {
+      const dom = new JSDOM(html);
+      const document = dom.window.document;
+      
+      // Cerca il contenuto principale
+      const bodyText = document.body.textContent.substring(0, 5000);
+      
+      return res.status(200).json({
+        debug: true,
+        htmlLength: html.length,
+        bodyPreview: bodyText,
+        tableCount: document.querySelectorAll('table').length,
+        rowCount: document.querySelectorAll('tr').length
+      });
+    }
+    
     const races = parseReggioCorre(html);
     
     console.log(`Found ${races.length} races`);
@@ -33,6 +48,7 @@ export default async function handler(req, res) {
     res.status(200).json({
       success: true,
       count: filteredRaces.length,
+      totalParsed: races.length,
       lastUpdate: new Date().toISOString(),
       races: filteredRaces
     });
@@ -42,7 +58,7 @@ export default async function handler(req, res) {
     res.status(500).json({
       success: false,
       error: error.message,
-      races: []
+      stack: error.stack
     });
   }
 }
@@ -52,67 +68,66 @@ function parseReggioCorre(html) {
   const document = dom.window.document;
   const races = [];
   
-  // Cerca tutte le righe della tabella calendario
-  const rows = document.querySelectorAll('tr');
+  // Strategia alternativa: cerca tutto il testo e identifica pattern
+  const bodyText = document.body.textContent;
+  const lines = bodyText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   
-  let currentDate = null;
   let id = 1;
   
-  rows.forEach(row => {
-    const cells = row.querySelectorAll('td');
+  for (let i = 0; i < lines.length - 5; i++) {
+    const line = lines[i];
     
-    if (cells.length < 3) return;
-    
-    // Prima cella: controlla se contiene una data (formato: gg/mm)
-    const firstCell = cells[0].textContent.trim();
-    const dateMatch = firstCell.match(/^(\d{1,2})\/(\d{1,2})$/);
+    // Cerca pattern data: formato dd/mm
+    const dateMatch = line.match(/^(\d{1,2})\/(\d{1,2})$/);
     
     if (dateMatch) {
       const [_, day, month] = dateMatch;
       const year = new Date().getFullYear();
-      currentDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
       
-      // Estrai dati dalla riga
+      // Prendi le prossime linee
+      const nextLines = lines.slice(i + 1, i + 10);
+      
+      let dayOfWeek = nextLines[0] || '';
+      let time = '09:00';
       let title = '';
       let location = '';
-      let time = '09:00';
       let description = '';
       let distances = [];
       
-      // Cerca nelle celle successive
-      for (let i = 1; i < cells.length; i++) {
-        const cellText = cells[i].textContent.trim();
+      // Cerca l'orario nelle prossime linee
+      for (let j = 0; j < nextLines.length; j++) {
+        const l = nextLines[j];
         
-        // Riconosci l'orario (formato hh:mm)
-        if (/^\d{1,2}:\d{2}$/.test(cellText)) {
-          time = cellText;
+        // Orario (hh:mm)
+        if (/^\d{1,2}:\d{2}$/.test(l) && !time) {
+          time = l;
         }
-        // Titolo della gara (di solito la cella più lunga con testo)
-        else if (cellText.length > 10 && !title && !cellText.includes('png') && !cellText.includes('http')) {
-          title = cellText;
+        // Titolo (prima stringa lunga che non è un orario)
+        else if (l.length > 10 && !title && !l.includes('Aggiungi') && !l.includes('Google')) {
+          title = l;
         }
         // Località (dopo il titolo)
-        else if (title && cellText.length > 3 && !location && !cellText.includes('png')) {
-          location = cellText.split(',')[0].trim();
+        else if (title && l.length > 3 && !location && !l.includes('png') && !l.includes('Maps')) {
+          location = l;
         }
-        // Distanze (numeri con trattini o virgole)
-        else if (/[\d\s,\-\.]+km/i.test(cellText) || /^[\d\s,\-\.]+$/.test(cellText)) {
-          const distStr = cellText.replace(/km/gi, '');
-          const dists = distStr.split(/[-,]/)
+        // Distanze (pattern: numeri separati da - o ,)
+        if (/^[\d\s,\-\.]+$/.test(l) && l.length > 1) {
+          const dists = l.split(/[-,\s]/)
             .map(d => parseFloat(d.trim()))
             .filter(d => !isNaN(d) && d > 0 && d < 200);
-          if (dists.length > 0) distances = dists;
+          if (dists.length > 0 && distances.length === 0) {
+            distances = dists;
+          }
+        }
+        
+        // Costruisci descrizione
+        if (j > 0 && l.length > 5 && !l.includes('png')) {
+          description += l + ' ';
         }
       }
       
-      // Concatena tutto il testo della riga come descrizione
-      description = Array.from(cells)
-        .map(c => c.textContent.trim())
-        .filter(t => t && !t.includes('png') && t.length > 2)
-        .join(' ')
-        .substring(0, 300);
-      
-      // Determina il tipo di gara
+      // Tipo di gara
       let type = 'Corsa su strada';
       const descLower = (title + ' ' + description).toLowerCase();
       if (descLower.includes('trail')) type = 'Trail';
@@ -123,23 +138,23 @@ function parseReggioCorre(html) {
       
       const isCompetitive = descLower.includes('competitiv') || descLower.includes('grand prix');
       
-      // Estrai prezzo
+      // Prezzo
       let price = 'Da definire';
       const priceMatch = description.match(/(\d+)\s*€/);
       if (priceMatch) price = `${priceMatch[1]}€`;
       else if (descLower.includes('gratuito') || descLower.includes('gratis')) price = 'Gratuito';
       
-      // Aggiungi solo se abbiamo dati significativi
-      if (currentDate && title && location && distances.length > 0) {
+      // Aggiungi solo se abbiamo dati minimi
+      if (title && location && distances.length > 0) {
         races.push({
           id: id++,
-          date: currentDate,
+          date,
           time,
-          title: title.replace(/\d+°|\d+ª|\d+^/g, '').trim(),
-          location,
+          title: title.replace(/\d+°|\d+ª|\d+\^/g, '').trim(),
+          location: location.split(',')[0].trim(),
           venue: location,
           distances,
-          description: description.trim(),
+          description: description.trim().substring(0, 300),
           type,
           isCompetitive,
           hasMap: true,
@@ -147,8 +162,11 @@ function parseReggioCorre(html) {
           price
         });
       }
+      
+      // Salta le linee già processate
+      i += 10;
     }
-  });
+  }
   
   return races;
 }
