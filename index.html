@@ -582,7 +582,7 @@ END:VCALENDAR`;
                 window.URL.revokeObjectURL(url);
             };
 
-            const locations = useMemo(() => {
+            const province = useMemo(() => {
                 return [...new Set(races.map(r => r.province).filter(Boolean))].sort();
             }, [races]);
 
@@ -606,7 +606,7 @@ END:VCALENDAR`;
                     const matchesDistance = !selectedDistance || race.distances.includes(parseFloat(selectedDistance));
                     const matchesDate = !selectedDate || race.date === selectedDate;
 
-                    return matchesSearch && matchesLocation && matchesType && matchesDistance && matchesDate;
+                    return matchesSearch && matchesProvince && matchesType && matchesDistance && matchesDate;
                 });
             }, [races, searchTerm, selectedProvince, selectedType, selectedDistance, selectedDate]);
 
@@ -976,5 +976,6 @@ END:VCALENDAR`;
     </script>
 </body>
 </html>
+
 
 
