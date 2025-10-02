@@ -578,7 +578,7 @@ END:VCALENDAR`;
                 link.download = `${race.title.replace(/[^a-z0-9]/gi, '_')}.ics`;
                 document.body.appendChild(link);
                 link.click();
-                document.body.removeChild(link);
+                document.body.removeChild(link); 
                 window.URL.revokeObjectURL(url);
             };
 
@@ -840,7 +840,7 @@ END:VCALENDAR`;
                                         className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                     >
                                         <option value="">Tutte le province</option>
-                                        {provinces.map(prov => (
+                                        {province.map(prov => (
                                             <option key={prov} value={prov}>{prov}</option>
                                         ))}
                                     </select>
