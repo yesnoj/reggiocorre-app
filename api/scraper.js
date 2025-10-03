@@ -27,17 +27,28 @@ export default async function handler(req, res) {
       const dom = new JSDOM(html);
       const document = dom.window.document;
       
-      // Cerca il contenuto principale
-      const bodyText = document.body.textContent.substring(0, 5000);
+      // Analisi dettagliata della struttura
+      const tables = document.querySelectorAll('table');
+      const rows = document.querySelectorAll('tr');
+      const yellowCells = document.querySelectorAll('td[bgcolor="#FFFF99"], td[style*="FFFF99"]');
+      
+      // Prendi alcune righe di esempio
+      const sampleRows = Array.from(rows).slice(0, 10).map(row => ({
+        cellCount: row.querySelectorAll('td').length,
+        firstCellText: row.querySelector('td')?.textContent.trim().substring(0, 50),
+        hasYellowCell: row.querySelector('td[bgcolor="#FFFF99"], td[style*="FFFF99"]') !== null,
+        innerHTML: row.innerHTML.substring(0, 300)
+      }));
       
       return res.status(200).json({
         debug: true,
         htmlLength: html.length,
-        bodyPreview: bodyText,
-        tableCount: document.querySelectorAll('table').length,
-        rowCount: document.querySelectorAll('tr').length,
-        linkCount: document.querySelectorAll('a').length,
-        imageCount: document.querySelectorAll('img').length
+        tableCount: tables.length,
+        rowCount: rows.length,
+        yellowCellCount: yellowCells.length,
+        sampleRows,
+        firstYellowCellContent: yellowCells[0]?.textContent.trim(),
+        bodyPreview: document.body.textContent.substring(0, 1000)
       });
     }
     
@@ -77,20 +88,56 @@ function parseReggioCorre(html) {
   const document = dom.window.document;
   const races = [];
   
-  // Trova tutte le righe della tabella del calendario
-  const rows = document.querySelectorAll('tr');
+  // Strategia multipla per trovare le righe con le date
   
+  // 1. Cerca celle gialle con diverse sintassi
+  const yellowCellSelectors = [
+    'td[bgcolor="#FFFF99"]',
+    'td[bgcolor="#ffff99"]',
+    'td[style*="FFFF99"]',
+    'td[style*="ffff99"]',
+    'td[style*="background-color:#FFFF99"]',
+    'td[style*="background-color: #FFFF99"]'
+  ];
+  
+  let dateRows = [];
+  for (let selector of yellowCellSelectors) {
+    const cells = document.querySelectorAll(selector);
+    for (let cell of cells) {
+      const row = cell.closest('tr');
+      if (row && !dateRows.includes(row)) {
+        dateRows.push(row);
+      }
+    }
+  }
+  
+  console.log(`Found ${dateRows.length} date rows with yellow cells`);
+  
+  // 2. Se non trova celle gialle, cerca righe con pattern data
+  if (dateRows.length === 0) {
+    const allRows = document.querySelectorAll('tr');
+    for (let row of allRows) {
+      const firstCell = row.querySelector('td');
+      if (firstCell) {
+        const text = firstCell.textContent.trim();
+        if (/^\d{1,2}\/\d{1,2}$/.test(text)) {
+          dateRows.push(row);
+        }
+      }
+    }
+    console.log(`Found ${dateRows.length} date rows by text pattern`);
+  }
+  
+  // 3. Parsing delle righe trovate
   let id = 1;
   
-  for (let row of rows) {
+  for (let row of dateRows) {
     try {
-      // Cerca celle con classe specifica per le date
-      const dateCell = row.querySelector('td[style*="background-color:#FFFF99"]') || 
-                       row.querySelector('td[bgcolor="#FFFF99"]');
+      const cells = Array.from(row.querySelectorAll('td'));
+      if (cells.length < 3) continue;
       
-      if (!dateCell) continue;
-      
-      const dateText = dateCell.textContent.trim();
+      // Prima cella: data
+      const dateText = cells[0]?.textContent.trim() || '';
       const dateMatch = dateText.match(/(\d{1,2})\/(\d{1,2})/);
       
       if (!dateMatch) continue;
@@ -99,96 +146,89 @@ function parseReggioCorre(html) {
       const year = new Date().getFullYear();
       const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
       
-      // Estrai altre celle della riga
-      const cells = row.querySelectorAll('td');
-      if (cells.length < 4) continue;
-      
-      // Struttura tipica: [data, giorno, provincia, ora, dettagli]
-      let timeText = '';
+      // Analizza le celle successive
+      let timeText = '09:00';
+      let provinceCode = 'XY';
       let titleText = '';
       let venueText = '';
       let description = '';
-      let provinceCode = 'XY';
       
-      // Cerca l'orario (formato HH:MM)
-      for (let cell of cells) {
-        const text = cell.textContent.trim();
+      // Cerca orario nelle celle
+      for (let i = 1; i < cells.length && i < 5; i++) {
+        const text = cells[i].textContent.trim();
         if (/^\d{1,2}:\d{2}$/.test(text)) {
           timeText = text;
           break;
         }
       }
       
-      // Cerca il codice provincia (RE, MO, BO, etc)
-      for (let cell of cells) {
-        const text = cell.textContent.trim();
-        if (/^[A-Z]{2}$/.test(text) && text.length === 2) {
+      // Cerca provincia (codice a 2 lettere maiuscole)
+      for (let i = 1; i < cells.length && i < 5; i++) {
+        const text = cells[i].textContent.trim();
+        if (/^[A-Z]{2}$/.test(text)) {
           provinceCode = text;
           break;
         }
       }
       
-      // Cerca il titolo (spesso in grassetto o in una cella specifica)
-      const titleCell = row.querySelector('td b') || row.querySelector('td strong');
-      if (titleCell) {
-        titleText = titleCell.textContent.trim();
+      // Il titolo è spesso in grassetto o nella cella più lunga
+      const boldElement = row.querySelector('b, strong');
+      if (boldElement) {
+        titleText = boldElement.textContent.trim();
       } else {
-        // Fallback: cerca la cella con più testo
-        let maxLength = 0;
-        for (let cell of cells) {
-          const text = cell.textContent.trim();
-          if (text.length > maxLength && text.length > 10 && !text.includes('png')) {
+        // Fallback: cerca la cella con più testo (esclusa la prima)
+        let maxLen = 0;
+        for (let i = 1; i < cells.length; i++) {
+          const text = cells[i].textContent.trim();
+          if (text.length > maxLen && text.length > 10 && !/^\d{1,2}:\d{2}$/.test(text) && !/^[A-Z]{2}$/.test(text)) {
             titleText = text;
-            maxLength = text.length;
+            maxLen = text.length;
           }
         }
       }
       
-      // Estrai descrizione completa e venue dalla riga e dalle righe successive
-      let currentRow = row;
-      let descriptionLines = [];
-      let foundVenue = false;
+      // Cerca dettagli nelle righe successive
+      let nextRow = row.nextElementSibling;
+      let rowsChecked = 0;
+      const maxRowsToCheck = 5;
       
-      // Cerca nelle prossime 3 righe per dettagli aggiuntivi
-      for (let i = 0; i < 3; i++) {
-        currentRow = currentRow.nextElementSibling;
-        if (!currentRow) break;
+      while (nextRow && rowsChecked < maxRowsToCheck) {
+        const nextText = nextRow.textContent.trim();
         
-        const textContent = currentRow.textContent.trim();
-        
-        // Salta righe vuote o con solo icone
-        if (!textContent || textContent.length < 5 || textContent.includes('png')) continue;
-        
-        // Se troviamo una nuova data, fermiamoci
-        if (/\d{1,2}\/\d{1,2}/.test(textContent.substring(0, 10))) break;
-        
-        descriptionLines.push(textContent);
-        
-        // Il venue è spesso la prima riga dopo il titolo
-        if (!foundVenue && textContent.length > 10) {
-          venueText = textContent;
-          foundVenue = true;
+        // Fermati se trovi un'altra data
+        if (/^\d{1,2}\/\d{1,2}/.test(nextText.substring(0, 10))) {
+          break;
         }
+        
+        // Salta righe con solo icone
+        if (nextText.length > 10 && !nextText.includes('png') && !nextText.includes('jpg')) {
+          if (!venueText && nextText.length > 15) {
+            venueText = nextText;
+          }
+          description += ' ' + nextText;
+        }
+        
+        nextRow = nextRow.nextElementSibling;
+        rowsChecked++;
       }
       
-      description = descriptionLines.join(' ').trim();
+      description = description.trim();
       
-      // Estrai distanze dalla descrizione
-      const distances = extractDistances(description + ' ' + titleText);
-      
+      // Estrai distanze
+      const distances = extractDistances(titleText + ' ' + description);
       if (distances.length === 0) continue;
       
-      // Estrai località dal venue
-      let location = extractLocation(venueText);
+      // Estrai località
+      let location = extractLocation(venueText || titleText);
       
-      // Converti codice provincia in nome completo
+      // Nome provincia completo
       let provinceName = 'Fuori Provincia';
       if (provinceCode === 'MO') provinceName = 'Modena';
       else if (provinceCode === 'RE') provinceName = 'Reggio Emilia';
       else if (provinceCode === 'BO') provinceName = 'Bologna';
       else if (provinceCode === 'PR') provinceName = 'Parma';
       
-      // Determina il tipo di gara
+      // Tipo di gara
       let type = 'Corsa su strada';
       const descLower = (titleText + ' ' + description).toLowerCase();
       if (descLower.includes('trail')) type = 'Trail';
@@ -199,56 +239,49 @@ function parseReggioCorre(html) {
       
       const isCompetitive = descLower.includes('competitiv') || descLower.includes('grand prix');
       
-      // Estrai prezzo
+      // Prezzo
       let price = 'Da definire';
       const priceMatch = description.match(/(\d+)\s*€/);
       if (priceMatch) price = `${priceMatch[1]}€`;
-      else if (descLower.includes('gratuito') || descLower.includes('gratis') || descLower.includes('libera')) price = 'Gratuito';
+      else if (descLower.includes('gratuito') || descLower.includes('gratis')) price = 'Gratuito';
       
-      // Estrai organizzatore
+      // Organizzatore
       let organizer = null;
-      const organizerMatch = description.match(/(?:Organizzatore|Societ[àa] o gruppo sportivo):\s*([^-\n]+)/i);
-      if (organizerMatch) {
-        organizer = organizerMatch[1].trim();
-      }
+      const organizerMatch = description.match(/(?:Organizzatore|organizzatore):\s*([^-\n]+)/i);
+      if (organizerMatch) organizer = organizerMatch[1].trim();
       
-      // Estrai società
+      // Società
       let society = null;
       const societyMatch = description.match(/Societ[àa] o gruppo sportivo:\s*([^\n]+)/i);
-      if (societyMatch) {
-        society = societyMatch[1].trim();
-      }
+      if (societyMatch) society = societyMatch[1].trim();
       
-      // Estrai email
+      // Email
       let emailAddress = null;
       const emailMatch = description.match(/[\w\.-]+@[\w\.-]+\.\w+/);
-      if (emailMatch) {
-        emailAddress = emailMatch[0];
-      }
+      if (emailMatch) emailAddress = emailMatch[0];
       
-      // Estrai telefono - FORMATTATO CON SPAZI
+      // Telefono formattato
       let phoneNumber = null;
       const phoneMatch = description.match(/(\d{3})[\s\-]?(\d{3,4})[\s\-]?(\d{4})/);
       if (phoneMatch) {
         phoneNumber = `${phoneMatch[1]} ${phoneMatch[2]}${phoneMatch[3]}`;
       }
       
-      // ESTRAI ALLEGATI - Cerca tutte le immagini nella riga
+      // Estrai allegati
       const attachments = extractAttachments(row, venueText, emailAddress);
       
-      // NON rimuovere numeri dall'edizione nel titolo
+      // Titolo pulito (mantieni numeri di edizione)
       const cleanTitle = titleText.trim();
       
-      // Aggiungi solo se abbiamo dati minimi
       if (cleanTitle && cleanTitle.length > 3 && location && distances.length > 0) {
         races.push({
           id: id++,
           date,
-          time: timeText || '09:00',
+          time: timeText,
           title: cleanTitle,
-          location: location,
+          location,
           province: provinceName,
-          provinceCode: provinceCode,
+          provinceCode,
           venue: venueText || location,
           distances: [...new Set(distances)].sort((a, b) => a - b),
           description: description.substring(0, 500).trim(),
@@ -274,11 +307,11 @@ function parseReggioCorre(html) {
 function extractDistances(text) {
   const distances = [];
   
-  // Pattern per distanze: "1.5 km", "10km", "21,097", "5-10-21"
+  // Pattern multipli per catturare vari formati
   const patterns = [
     /(\d+[,.]?\d*)\s*km/gi,
-    /(\d+[,.]?\d*)\s*-\s*(\d+[,.]?\d*)\s*-\s*(\d+[,.]?\d*)/g,
-    /(?:^|\s)(\d+[,.]?\d*)(?:\s|$)/g
+    /(\d+[,.]?\d*)\s*[-–]\s*(\d+[,.]?\d*)\s*[-–]\s*(\d+[,.]?\d*)/g,
+    /(?:^|\s)(\d+[,.]?\d*)(?=\s*[-–km]|\s|$)/g
   ];
   
   for (let pattern of patterns) {
@@ -301,20 +334,21 @@ function extractDistances(text) {
 function extractLocation(venue) {
   if (!venue) return 'N/D';
   
-  // Prendi l'ultima parte dopo la virgola
+  // Prendi l'ultima parte dopo la virgola (di solito è la città)
   const parts = venue.split(',');
   if (parts.length > 1) {
-    return parts[parts.length - 1].trim();
+    const lastPart = parts[parts.length - 1].trim();
+    if (lastPart.length < 50) return lastPart;
   }
   
-  // Oppure le prime 3 parole
+  // Fallback: prime 3 parole
   const words = venue.split(' ').slice(0, 3).join(' ');
   return words.length > 50 ? venue.substring(0, 50) : words;
 }
 
 function extractAttachments(row, venue, emailAddress) {
   const attachments = {
-    hasCalendar: true, // Sempre disponibile (la nostra funzione)
+    hasCalendar: true,
     hasMaps: false,
     hasAttachment1: false,
     hasAttachment2: false,
@@ -329,50 +363,56 @@ function extractAttachments(row, venue, emailAddress) {
     attachmentUrls: []
   };
   
-  // Cerca tutte le immagini e link nella riga
+  // Cerca immagini e link nella riga e nelle successive
   const images = row.querySelectorAll('img');
   const links = row.querySelectorAll('a');
   
-  for (let img of images) {
-    const src = img.src || img.getAttribute('src') || '';
-    const alt = img.alt || '';
-    const srcLower = src.toLowerCase();
+  // Analizza anche la riga successiva (spesso contiene gli allegati)
+  const nextRow = row.nextElementSibling;
+  if (nextRow) {
+    const nextImages = nextRow.querySelectorAll('img');
+    const nextLinks = nextRow.querySelectorAll('a');
     
-    // Trova il link parent se esiste
-    let parentLink = img.closest('a');
-    let linkHref = parentLink ? parentLink.href : null;
+    for (let img of nextImages) {
+      images.push ? images.push(img) : null;
+    }
+    for (let link of nextLinks) {
+      links.push ? links.push(link) : null;
+    }
+  }
+  
+  // Analizza immagini
+  for (let img of images) {
+    const src = (img.src || img.getAttribute('src') || '').toLowerCase();
+    const alt = (img.alt || '').toLowerCase();
+    
+    const parentLink = img.closest('a');
+    const linkHref = parentLink?.href || parentLink?.getAttribute('href') || '';
     
     // Maps
-    if (srcLower.includes('maps') || srcLower.includes('mappa')) {
+    if (src.includes('maps') || src.includes('mappa')) {
       attachments.hasMaps = true;
-      if (!attachments.mapLink && venue) {
+      if (venue && !attachments.mapLink) {
         attachments.mapLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venue)}`;
       }
     }
     
-    // Calendar
-    if (srcLower.includes('calendar') || srcLower.includes('calendario')) {
-      attachments.hasCalendar = true;
-    }
-    
     // Email
-    if (srcLower.includes('email') || srcLower.includes('mail')) {
+    if (src.includes('email') || src.includes('mail')) {
       attachments.hasEmail = true;
-      if (emailAddress) {
-        attachments.emailAddress = emailAddress;
-      }
+      if (emailAddress) attachments.emailAddress = emailAddress;
     }
     
     // Website
-    if (srcLower.includes('www') || srcLower.includes('web') || srcLower.includes('sito')) {
+    if (src.includes('www') || src.includes('web')) {
       attachments.hasWebsite = true;
-      if (linkHref && (linkHref.startsWith('http') || linkHref.startsWith('www'))) {
-        attachments.websiteUrl = linkHref.startsWith('http') ? linkHref : 'https://' + linkHref;
+      if (linkHref && linkHref.startsWith('http')) {
+        attachments.websiteUrl = linkHref;
       }
     }
     
     // Iscrizione
-    if (srcLower.includes('iscrizione') || srcLower.includes('registration') || alt.toLowerCase().includes('iscrizione')) {
+    if (src.includes('iscrizione') || alt.includes('iscrizione')) {
       attachments.hasRegistration = true;
       if (linkHref && linkHref.startsWith('http')) {
         attachments.registrationUrl = linkHref;
@@ -380,70 +420,50 @@ function extractAttachments(row, venue, emailAddress) {
     }
     
     // GPX
-    if (srcLower.includes('gpx') || alt.toLowerCase().includes('gpx')) {
+    if (src.includes('gpx') || alt.includes('gpx')) {
       attachments.hasGPX = true;
-      if (linkHref && linkHref.includes('.gpx')) {
-        attachments.attachmentUrls.push(linkHref);
-      }
-    }
-    
-    // Allegati generici (allegato1, allegato2, locandina, etc)
-    if (srcLower.includes('allegato1') || srcLower.includes('locandina')) {
-      attachments.hasAttachment1 = true;
-      if (linkHref && (linkHref.includes('.pdf') || linkHref.includes('.jpg') || linkHref.includes('.png'))) {
-        // Converti link relativi in assoluti
-        const fullUrl = linkHref.startsWith('http') ? linkHref : 'https://www.reggiocorre.it/' + linkHref.replace(/^\//, '');
+      if (linkHref) {
+        const fullUrl = linkHref.startsWith('http') ? linkHref : `https://www.reggiocorre.it/${linkHref.replace(/^\//, '')}`;
         attachments.attachmentUrls.push(fullUrl);
       }
     }
     
-    if (srcLower.includes('allegato2') || srcLower.includes('regolamento')) {
-      attachments.hasAttachment2 = true;
+    // Allegati
+    if (src.includes('allegato')) {
+      if (src.includes('allegato1')) attachments.hasAttachment1 = true;
+      if (src.includes('allegato2')) attachments.hasAttachment2 = true;
+      
       if (linkHref && (linkHref.includes('.pdf') || linkHref.includes('.jpg') || linkHref.includes('.png'))) {
-        const fullUrl = linkHref.startsWith('http') ? linkHref : 'https://www.reggiocorre.it/' + linkHref.replace(/^\//, '');
+        const fullUrl = linkHref.startsWith('http') ? linkHref : `https://www.reggiocorre.it/${linkHref.replace(/^\//, '')}`;
         attachments.attachmentUrls.push(fullUrl);
       }
     }
   }
   
-  // Cerca link diretti (senza immagini)
+  // Analizza link diretti
   for (let link of links) {
-    const href = link.href;
+    const href = link.href || link.getAttribute('href') || '';
     const text = link.textContent.toLowerCase();
     
     if (!href) continue;
     
-    // Link iscrizione
-    if (text.includes('iscri') || href.includes('iscrizione') || href.includes('endu.net') || href.includes('cronometraggio')) {
+    if (text.includes('iscri') || href.includes('endu.net') || href.includes('iscrizione')) {
       attachments.hasRegistration = true;
-      if (!attachments.registrationUrl) {
+      if (!attachments.registrationUrl && href.startsWith('http')) {
         attachments.registrationUrl = href;
       }
     }
     
-    // Sito web
-    if ((text.includes('sito') || text.includes('web') || text.includes('www')) && href.startsWith('http')) {
-      attachments.hasWebsite = true;
-      if (!attachments.websiteUrl) {
-        attachments.websiteUrl = href;
-      }
-    }
-    
-    // GPX o file scaricabili
-    if (href.includes('.gpx') || href.includes('.pdf') || href.includes('.jpg')) {
-      const fullUrl = href.startsWith('http') ? href : 'https://www.reggiocorre.it/' + href.replace(/^\//, '');
+    if (href.includes('.pdf') || href.includes('.gpx')) {
+      const fullUrl = href.startsWith('http') ? href : `https://www.reggiocorre.it/${href.replace(/^\//, '')}`;
       if (!attachments.attachmentUrls.includes(fullUrl)) {
         attachments.attachmentUrls.push(fullUrl);
       }
-      
-      if (href.includes('.gpx')) {
-        attachments.hasGPX = true;
-      }
+      if (href.includes('.gpx')) attachments.hasGPX = true;
     }
   }
   
-  // Deduplica attachmentUrls
   attachments.attachmentUrls = [...new Set(attachments.attachmentUrls)];
   
   return attachments;
-}
+      }
