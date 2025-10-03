@@ -1,4 +1,4 @@
- // api/scraper.js - Vercel Serverless Function
+// api/scraper.js - Vercel Serverless Function (FIXED)
 import fetch from 'node-fetch';
 import { JSDOM } from 'jsdom';
 
@@ -8,7 +8,6 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
 
-  // Handle preflight
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
@@ -81,9 +80,7 @@ function parseReggioCorre(html) {
   const document = dom.window.document;
   const races = [];
   
-  // Trova tutte le righe della tabella
   const allRows = Array.from(document.querySelectorAll('tr'));
-  
   console.log(`Total rows found: ${allRows.length}`);
   
   let id = 1;
@@ -93,79 +90,116 @@ function parseReggioCorre(html) {
       const row = allRows[i];
       const cells = Array.from(row.querySelectorAll('td'));
       
-      // Deve avere almeno 4 celle (data, ora, provincia, dettagli)
       if (cells.length < 4) continue;
       
-      // La prima cella contiene la data in <b>
+      // CELLA 0: Data in <b>
       const dateElement = cells[0].querySelector('b');
       if (!dateElement) continue;
       
       const dateText = dateElement.textContent.trim();
       const dateMatch = dateText.match(/^(\d{1,2})\/(\d{1,2})$/);
-      
       if (!dateMatch) continue;
       
       const [_, day, month] = dateMatch;
       const year = new Date().getFullYear();
       const date = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
       
-      // Prima cella: contiene anche il giorno della settimana in <i> e provincia
+      // CELLA 0: Estrai provincia
       const firstCellText = cells[0].textContent;
-      
-      // Seconda cella: orario
-      const timeText = cells[1]?.textContent.trim() || '09:00';
-      
-      // Terza cella: codice provincia (già nella prima cella, ma verifichiamo)
       let provinceCode = 'XY';
-      const provinceMatch = firstCellText.match(/\n([A-Z]{2})\n/);
+      const provinceMatch = firstCellText.match(/\b([A-Z]{2})\b/);
       if (provinceMatch) {
         provinceCode = provinceMatch[1];
       }
       
-      // Quarta cella: titolo (spesso in <b>)
+      // CELLA 1: Orario
+      const timeText = cells[1]?.textContent.trim() || '09:00';
+      
+      // CELLA 3: Titolo principale (spesso in <b>)
       const titleElement = cells[3]?.querySelector('b') || cells[3];
-      const titleText = titleElement?.textContent.trim() || '';
+      let titleText = titleElement?.textContent.trim() || '';
       
       if (!titleText || titleText.length < 3) continue;
       
-      // Cerca dettagli nelle celle successive o nella stessa riga
+      // IMPORTANTE: Il titolo potrebbe essere le distanze (es: "68 - 43 - 28")
+      // In questo caso, cerca il vero titolo nelle celle successive
+      const titleIsDistance = /^\d+[\s\-,]+\d+/.test(titleText);
+      let realTitle = titleText;
       let venueText = '';
-      let description = '';
+      let fullDescription = '';
       
-      // Spesso il venue è nella cella 3 o 4 (dopo il titolo)
-      for (let j = 3; j < cells.length; j++) {
-        const cellText = cells[j].textContent.trim();
-        if (cellText && cellText.length > 10 && cellText !== titleText) {
-          if (!venueText) {
+      if (titleIsDistance) {
+        // Il vero titolo è nella cella successiva o nel testo seguente
+        for (let j = 4; j < cells.length; j++) {
+          const cellText = cells[j].textContent.trim();
+          const cellBold = cells[j].querySelector('b')?.textContent.trim();
+          
+          // Il vero titolo è spesso quello più lungo e in grassetto
+          if (cellBold && cellBold.length > 10 && !cellBold.match(/^\d/)) {
+            realTitle = cellBold;
+            break;
+          } else if (cellText.length > 15 && !cellText.match(/^\d/) && !venueText) {
+            // Questo potrebbe essere il venue
             venueText = cellText;
           }
-          description += ' ' + cellText;
         }
       }
       
-      // Cerca anche nella riga successiva per più dettagli
-      if (i + 1 < allRows.length) {
-        const nextRow = allRows[i + 1];
-        const nextCells = nextRow.querySelectorAll('td');
+      // Cerca venue e descrizione completa nelle celle successive
+      for (let j = 3; j < cells.length; j++) {
+        const cellText = cells[j].textContent.trim();
         
-        for (let cell of nextCells) {
-          const text = cell.textContent.trim();
-          if (text && text.length > 10 && !text.includes('png') && !/^\d{1,2}\/\d{1,2}$/.test(text)) {
-            description += ' ' + text;
+        // Salta celle che sono solo numeri o immagini
+        if (!cellText || cellText.length < 5 || /^[\d\s\-,\.]+$/.test(cellText)) continue;
+        
+        // Il venue spesso contiene "Via", indirizzo, o nome località
+        if (!venueText && (cellText.includes('Via') || cellText.includes('Piazza') || 
+            cellText.includes('Corso') || cellText.includes(',') && cellText.length > 20)) {
+          venueText = cellText;
+        }
+        
+        // Accumula descrizione (escludi il titolo)
+        if (cellText !== realTitle && cellText !== titleText) {
+          fullDescription += ' ' + cellText;
+        }
+      }
+      
+      // Pulisci descrizione da artefatti
+      fullDescription = fullDescription
+        .replace(/\n+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/png\/\w+\.png/gi, '')
+        .trim();
+      
+      // Estrai località dal venue (ultima parte dopo virgola)
+      let location = 'N/D';
+      if (venueText) {
+        const venueParts = venueText.split(',');
+        if (venueParts.length > 0) {
+          const lastPart = venueParts[venueParts.length - 1].trim();
+          // Se l'ultima parte è corta e sensata, usala come location
+          if (lastPart && lastPart.length > 2 && lastPart.length < 30 && !/^\d/.test(lastPart)) {
+            location = lastPart;
+          } else if (venueParts.length > 1) {
+            // Altrimenti prova la penultima parte
+            location = venueParts[venueParts.length - 2].trim();
           }
         }
       }
       
-      description = description.trim();
+      // Se location non trovata, cerca nel titolo o descrizione
+      if (location === 'N/D') {
+        const locationMatch = (realTitle + ' ' + fullDescription).match(/\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)\b/);
+        if (locationMatch) {
+          location = locationMatch[1];
+        }
+      }
       
-      // Estrai distanze
-      const distances = extractDistances(titleText + ' ' + description);
+      // Estrai distanze (sia dal titolo originale che dalla descrizione)
+      const distances = extractDistances(titleText + ' ' + realTitle + ' ' + fullDescription);
       if (distances.length === 0) continue;
       
-      // Estrai località
-      let location = extractLocation(venueText || titleText);
-      
-      // Nome provincia completo
+      // Nome provincia
       let provinceName = 'Fuori Provincia';
       if (provinceCode === 'MO') provinceName = 'Modena';
       else if (provinceCode === 'RE') provinceName = 'Reggio Emilia';
@@ -174,7 +208,7 @@ function parseReggioCorre(html) {
       
       // Tipo di gara
       let type = 'Corsa su strada';
-      const descLower = (titleText + ' ' + description).toLowerCase();
+      const descLower = (realTitle + ' ' + fullDescription).toLowerCase();
       if (descLower.includes('trail')) type = 'Trail';
       else if (descLower.includes('camminata')) type = 'Camminata';
       else if (descLower.includes('skyrace')) type = 'Skyrace';
@@ -185,46 +219,48 @@ function parseReggioCorre(html) {
       
       // Prezzo
       let price = 'Da definire';
-      const priceMatch = description.match(/(\d+)\s*€/);
+      const priceMatch = fullDescription.match(/(\d+)\s*€/);
       if (priceMatch) price = `${priceMatch[1]}€`;
-      else if (descLower.includes('gratuito') || descLower.includes('gratis') || descLower.includes('libera')) price = 'Gratuito';
+      else if (descLower.includes('gratuito') || descLower.includes('gratis') || descLower.includes('libera')) {
+        price = 'Gratuito';
+      }
       
       // Organizzatore
       let organizer = null;
-      const organizerMatch = description.match(/(?:Organizzatore|organizzatore):\s*([^-\n]+)/i);
+      const organizerMatch = fullDescription.match(/(?:Organizzatore|organizzatore):\s*([^\-\n]+?)(?:\s*\-|\n|$)/i);
       if (organizerMatch) organizer = organizerMatch[1].trim();
       
       // Società
       let society = null;
-      const societyMatch = description.match(/Societ[àa] o gruppo sportivo:\s*([^\n]+)/i);
+      const societyMatch = fullDescription.match(/Societ[àa] o gruppo sportivo:\s*([^\n]+?)(?:Organizzatore|$)/i);
       if (societyMatch) society = societyMatch[1].trim();
       
       // Email
       let emailAddress = null;
-      const emailMatch = description.match(/[\w\.-]+@[\w\.-]+\.\w+/);
+      const emailMatch = fullDescription.match(/[\w\.-]+@[\w\.-]+\.\w+/);
       if (emailMatch) emailAddress = emailMatch[0];
       
-      // Telefono formattato
+      // Telefono
       let phoneNumber = null;
-      const phoneMatch = description.match(/(\d{3})[\s\-]?(\d{3,4})[\s\-]?(\d{4})/);
+      const phoneMatch = fullDescription.match(/(\d{3})[\s\-]?(\d{3,4})[\s\-]?(\d{4})/);
       if (phoneMatch) {
         phoneNumber = `${phoneMatch[1]} ${phoneMatch[2]}${phoneMatch[3]}`;
       }
       
-      // Estrai allegati dalla riga
+      // Estrai allegati
       const attachments = extractAttachments(row, venueText, emailAddress);
       
       races.push({
         id: id++,
         date,
         time: timeText,
-        title: titleText,
+        title: realTitle,
         location,
         province: provinceName,
         provinceCode,
         venue: venueText || location,
         distances: [...new Set(distances)].sort((a, b) => a - b),
-        description: description.substring(0, 500).trim(),
+        description: fullDescription.substring(0, 500).trim(),
         type,
         isCompetitive,
         price,
@@ -247,7 +283,6 @@ function parseReggioCorre(html) {
 function extractDistances(text) {
   const distances = [];
   
-  // Cerca pattern come "1.5 km", "10km", "5-10-21", "1,5-7,2-11"
   const patterns = [
     /(\d+[,.]?\d*)\s*km/gi,
     /(\d+[,.]?\d*)\s*[-–]\s*(\d+[,.]?\d*)\s*[-–]\s*(\d+[,.]?\d*)/g,
@@ -271,21 +306,6 @@ function extractDistances(text) {
   return [...new Set(distances)];
 }
 
-function extractLocation(venue) {
-  if (!venue) return 'N/D';
-  
-  // Prendi l'ultima parte dopo la virgola
-  const parts = venue.split(',');
-  if (parts.length > 1) {
-    const lastPart = parts[parts.length - 1].trim();
-    if (lastPart.length < 50) return lastPart;
-  }
-  
-  // Fallback
-  const words = venue.split(' ').slice(0, 3).join(' ');
-  return words.length > 50 ? venue.substring(0, 50) : words;
-}
-
 function extractAttachments(row, venue, emailAddress) {
   const attachments = {
     hasCalendar: true,
@@ -303,25 +323,18 @@ function extractAttachments(row, venue, emailAddress) {
     attachmentUrls: []
   };
   
-  // Cerca nella riga corrente
   const images = row.querySelectorAll('img');
   const links = row.querySelectorAll('a');
   
-  // Analizza immagini
   for (let img of images) {
     const src = (img.src || img.getAttribute('src') || '').toLowerCase();
     const alt = (img.alt || '').toLowerCase();
     
-    // Trova il link parent
     const parentLink = img.closest('a');
     const linkHref = parentLink?.href || parentLink?.getAttribute('href') || '';
     
-    // Calendar (già presente nel nostro sistema)
-    if (src.includes('calendar')) {
-      attachments.hasCalendar = true;
-    }
+    if (src.includes('calendar')) attachments.hasCalendar = true;
     
-    // Maps
     if (src.includes('maps') || src.includes('mappa')) {
       attachments.hasMaps = true;
       if (venue) {
@@ -329,15 +342,11 @@ function extractAttachments(row, venue, emailAddress) {
       }
     }
     
-    // Email
     if (src.includes('email') || src.includes('mail')) {
       attachments.hasEmail = true;
-      if (emailAddress) {
-        attachments.emailAddress = emailAddress;
-      }
+      if (emailAddress) attachments.emailAddress = emailAddress;
     }
     
-    // Website
     if (src.includes('www') || src.includes('web')) {
       attachments.hasWebsite = true;
       if (linkHref && linkHref.startsWith('http')) {
@@ -345,7 +354,6 @@ function extractAttachments(row, venue, emailAddress) {
       }
     }
     
-    // Iscrizione
     if (src.includes('iscrizione') || alt.includes('iscrizione')) {
       attachments.hasRegistration = true;
       if (linkHref && linkHref.startsWith('http')) {
@@ -353,7 +361,6 @@ function extractAttachments(row, venue, emailAddress) {
       }
     }
     
-    // GPX
     if (src.includes('gpx') || alt.includes('gpx')) {
       attachments.hasGPX = true;
       if (linkHref) {
@@ -364,7 +371,6 @@ function extractAttachments(row, venue, emailAddress) {
       }
     }
     
-    // Allegati (PDF, immagini)
     if (src.includes('allegato1') || src.includes('locandina')) {
       attachments.hasAttachment1 = true;
       if (linkHref) {
@@ -386,14 +392,12 @@ function extractAttachments(row, venue, emailAddress) {
     }
   }
   
-  // Analizza link diretti
   for (let link of links) {
     const href = link.href || link.getAttribute('href') || '';
     const text = link.textContent.toLowerCase();
     
     if (!href) continue;
     
-    // Link iscrizione
     if (text.includes('iscri') || href.includes('endu.net') || href.includes('iscrizione')) {
       attachments.hasRegistration = true;
       if (href.startsWith('http') && !attachments.registrationUrl) {
@@ -401,7 +405,6 @@ function extractAttachments(row, venue, emailAddress) {
       }
     }
     
-    // Sito web
     if ((text.includes('sito') || text.includes('www')) && href.startsWith('http')) {
       attachments.hasWebsite = true;
       if (!attachments.websiteUrl) {
@@ -409,7 +412,6 @@ function extractAttachments(row, venue, emailAddress) {
       }
     }
     
-    // File scaricabili
     if (href.includes('.pdf') || href.includes('.gpx') || href.includes('.jpg') || href.includes('.png')) {
       const fullUrl = href.startsWith('http') 
         ? href 
@@ -419,13 +421,10 @@ function extractAttachments(row, venue, emailAddress) {
         attachments.attachmentUrls.push(fullUrl);
       }
       
-      if (href.includes('.gpx')) {
-        attachments.hasGPX = true;
-      }
+      if (href.includes('.gpx')) attachments.hasGPX = true;
     }
   }
   
-  // Deduplica
   attachments.attachmentUrls = [...new Set(attachments.attachmentUrls)];
   
   return attachments;
